@@ -1,0 +1,15 @@
+[gd_scene load_steps=6 format=2]
+
+[ext_resource path="res://HexTile.gd" type="Script" id=1]
+[ext_resource path="res://meshes/hex_mesh_1.tres" type="ArrayMesh" id=2]
+[ext_resource path="res://textures/NaturalStone01_2K_Roughness.png" type="Texture" id=3]
+[ext_resource path="res://textures/NaturalStone01_2K_BaseColor.png" type="Texture" id=4]
+
+[sub_resource type="SpatialMaterial" id=1]
+albedo_texture = ExtResource( 4 )
+roughness_texture = ExtResource( 3 )
+
+[node name="MeshInstance" type="MeshInstance"]
+mesh = ExtResource( 2 )
+material/0 = SubResource( 1 )
+script = ExtResource( 1 )
