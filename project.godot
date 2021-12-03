@@ -8,10 +8,30 @@
 
 config_version=4
 
+_global_script_classes=[ {
+"base": "Resource",
+"class": "Config",
+"language": "GDScript",
+"path": "res://Config.gd"
+}, {
+"base": "Node",
+"class": "Utility",
+"language": "GDScript",
+"path": "res://Utility.gd"
+} ]
+_global_script_class_icons={
+"Config": "",
+"Utility": ""
+}
+
 [application]
 
 config/name="HEX SRPG"
 config/icon="res://icon.png"
+
+[autoload]
+
+Global="*res://Global.gd"
 
 [input]
 

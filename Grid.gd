@@ -1,16 +1,17 @@
 tool
 extends Spatial
 
-var mesh: Mesh = preload("res://meshes/hex_mesh_2.tres")
+var mesh: Mesh = preload("res://meshes/hex_mesh_1.tres")
+var mesh_2: Mesh = preload("res://meshes/hex_mesh_2.tres")
 var hex = preload("res://HexTile.tscn")
 var rough_texture = preload("res://textures/BatteredMetal02_2K_Roughness.png")
 #var texture = preload("res://textures/BatteredMetal02_2K_BaseColor.png")
 var texture = preload("res://textures/NaturalStone01_2K_BaseColor.png")
-
+var Config = preload("res://CONFIG.tres")
 export var SIZE = 7 # should be odd for a nice sized hexagon
 
-const TILE_WIDTH = 384.0
-const TILE_HEIGHT = 221.7
+#const TILE_WIDTH = 384.0
+#const TILE_HEIGHT = 221.7
 
 onready var grid = []
 
@@ -146,7 +147,7 @@ func _on_input(_cam, event, _pos, _norm, _shape_idx, x, y):
 				var neighbor = grid[h][k]
 				neighbor.color = Color(0.25, 0.1, 0.5, 1)
 				if h == x and k == y:
-					neighbor.change_mesh(mesh)
+					neighbor.change_mesh(mesh_2)
 					connect_hex_signals(neighbor)
 			#for n in get_neighbors_and_distances(x, y, 2):
 				#var h = n.x
@@ -183,7 +184,9 @@ func generate_tiles():
 			mi.color = color
 			mi.base_color = color
 			mi.material_override = material
-			mi.translate(Vector3(x * TILE_WIDTH, y * TILE_HEIGHT * 2 + x * TILE_HEIGHT, 0))
+			#mi.translate(Vector3(x * TILE_WIDTH, y * TILE_HEIGHT * 2 + x * TILE_HEIGHT, 0))
+			mi.translate(Vector3(x * Config.TILE_WIDTH - 50, y * Config.TILE_HEIGHT * 2, 0))
+			#mi.rotate_z(deg2rad(-15))
 			mi.grid_coords = Vector2(x, y)
 			if not Engine.editor_hint:
 				connect_hex_signals(mi)
@@ -194,5 +197,5 @@ func generate_tiles():
 func _ready():
 	generate_tiles()
 	var center_tile = grid[SIZE/2][SIZE/2]
-	$OuterGimbal.RADIUS = TILE_HEIGHT * SIZE + 500
+	$OuterGimbal.RADIUS = Config.TILE_HEIGHT * SIZE + 500
 	$OuterGimbal.CENTER = Vector2(center_tile.translation.x, center_tile.translation.y)

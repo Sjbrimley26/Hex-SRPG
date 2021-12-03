@@ -20,6 +20,9 @@ func _physics_process(_delta):
 	if current_rotation < 0:
 		current_rotation = 2 * PI + current_rotation
 	
-	self.translation.x = CENTER.x + RADIUS * cos(current_rotation)
-	self.translation.y = CENTER.y + RADIUS * sin(current_rotation)
+	var pos = Utility.get_point_on_circle(current_rotation, RADIUS, CENTER)
+	#self.translation.x = CENTER.x + RADIUS * cos(current_rotation)
+	#self.translation.y = CENTER.y + RADIUS * sin(current_rotation)
+	self.translation.x = pos.x
+	self.translation.y = pos.y 
 	$InnerGimbal.rotation.y = current_rotation + PI/2

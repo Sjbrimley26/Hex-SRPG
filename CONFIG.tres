@@ -1,0 +1,8 @@
+[gd_resource type="Resource" load_steps=2 format=2]
+
+[ext_resource path="res://Config.gd" type="Script" id=1]
+
+[resource]
+script = ExtResource( 1 )
+TILE_WIDTH = 509.438
+TILE_HEIGHT = 245.485
