@@ -4,5 +4,5 @@
 
 [resource]
 script = ExtResource( 1 )
-TILE_WIDTH = 509.438
-TILE_HEIGHT = 245.485
+TILE_WIDTH = 96.0
+TILE_HEIGHT = 55.43

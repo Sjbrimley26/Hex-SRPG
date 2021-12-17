@@ -5,70 +5,82 @@ export var HEIGHT = 2
 var Config = load("res://CONFIG.tres")
 
 func generate_points(radius): #and set TILE_WIDTH and TILE_HEIGHT
+	# this doesn't really work the way I want but maybe I'll fix it someday
 	var height = HEIGHT * radius
 	var top = []
+	var flipped_top = []
+	var flipped_bottom = []
 	var bottom = []
-	var minX = INF
 	var maxX = -INF
 	var maxY = -INF
-	for i in range(0, -2 * PI, -2 * PI / 6):
+	for i in range(0, -PI, -2 * PI / 6):
 		var pos = Utility.get_point_on_circle(i, radius)
-		if pos.x < minX:
-			minX = pos.x
 		if pos.x > maxX:
 			maxX = pos.x
-		if pos.y > maxY:
-			maxY = pos.y
+		if abs(pos.y) > maxY:
+			maxY = abs(pos.y)
 		top.append(Vector3(pos.x, pos.y, 0))
 		bottom.append(Vector3(pos.x, pos.y, height))
+		if i == 0:
+			flipped_top.append(Vector3(-pos.x, pos.y, 0))
+			flipped_bottom.append(Vector3(-pos.x, pos.y, height))
+		else:
+			flipped_top.push_front(Vector3(pos.x, -pos.y, 0))
+			flipped_bottom.push_front(Vector3(pos.x, -pos.y, height))
+			
+	bottom.append_array([flipped_bottom[2], flipped_bottom[0], flipped_bottom[1]])
 	bottom.append_array(top)
-	Config.TILE_WIDTH = maxX - minX
+	bottom.append_array([flipped_top[2], flipped_top[0], flipped_top[1]])
+	Config.TILE_WIDTH = maxX * 2
+	print(maxY)
 	Config.TILE_HEIGHT = maxY
 	var err = ResourceSaver.save("res://Config.tres", Config)
 	if err:
 		print(err)
-	print(bottom)
+	#print(bottom)
+	#print(bottom.size())
 	return bottom
 
 func _ready():
-	var v = generate_points(256)
-	#var height = HEIGHT * 200
-	#var a = Vector3(128, 221.7, height)
-	#var b = Vector3(256, 0, height)
-	#var c = Vector3(128, -221.7, height)
-	#var d = Vector3(-128, -221.7, height)
-	#var e = Vector3(-256, 0, height)
-	#var f = Vector3(-128, 221.7, height)
-	#var g = Vector3(128, 221.7, 0)
-	#var g2 = Vector3(128, 221.7, 0)
-	#var h = Vector3(256, 0, 0)
-	#var h2 = Vector3(256, 0, 0)
-	#var i = Vector3(128, -221.7, 0)
-	#var i2 = Vector3(128, -221.7, 0)
-	#var j = Vector3(-128, -221.7, 0)
-	#var j2 = Vector3(-128, -221.7, 0)
-	#var k = Vector3(-256, 0, 0)
-	#var k2 = Vector3(-256, 0, 0)
-	#var l = Vector3(-128, 221.7, 0)
-	#var l2 = Vector3(-128, 221.7, 0)
-	var a = v[0]
-	var b = v[1]
-	var c = v[2]
-	var d = v[3]
-	var e = v[4]
-	var f = v[5]
-	var g = v[6]
-	var g2 = Vector3(g.x, g.y, g.z)
-	var h = v[7]
-	var h2 = Vector3(h.x, h.y, h.z)
-	var i = v[8]
-	var i2 = Vector3(i.x, i.y, i.z)
-	var j = v[9]
-	var j2 = Vector3(j.x, j.y, j.z)
-	var k = v[10]
-	var k2 = Vector3(k.x, k.y, k.z)
-	var l = v[11]
-	var l2 = Vector3(l.x, l.y, l.z)
+	#var v = generate_points(256)
+	var height = HEIGHT * 64
+	var a = Vector3(32, 55.43, height)
+	var b = Vector3(64, 0, height)
+	var c = Vector3(32, -55.43, height)
+	var d = Vector3(-32, -55.43, height)
+	var e = Vector3(-64, 0, height)
+	var f = Vector3(-32, 55.43, height)
+	var g = Vector3(32, 55.43, 0)
+	var g2 = Vector3(32, 55.43, 0)
+	var h = Vector3(64, 0, 0)
+	var h2 = Vector3(64, 0, 0)
+	var i = Vector3(32, -55.43, 0)
+	var i2 = Vector3(32, -55.43, 0)
+	var j = Vector3(-32, -55.43, 0)
+	var j2 = Vector3(-32, -55.43, 0)
+	var k = Vector3(-64, 0, 0)
+	var k2 = Vector3(-64, 0, 0)
+	var l = Vector3(-32, 55.43, 0)
+	var l2 = Vector3(-32, 55.43, 0)
+	
+	#var a = v[0]
+	#var b = v[1]
+	#var c = v[2]
+	#var d = v[3]
+	#var e = v[4]
+	#var f = v[5]
+	#var g = v[6]
+	#var g2 = Vector3(g.x, g.y, g.z)
+	#var h = v[7]
+	#var h2 = Vector3(h.x, h.y, h.z)
+	#var i = v[8]
+	#var i2 = Vector3(i.x, i.y, i.z)
+	#var j = v[9]
+	#var j2 = Vector3(j.x, j.y, j.z)
+	#var k = v[10]
+	#var k2 = Vector3(k.x, k.y, k.z)
+	#var l = v[11]
+	#var l2 = Vector3(l.x, l.y, l.z)
 	
 	var triangles := [
 		# top face
@@ -123,7 +135,7 @@ func _ready():
 	for t in triangles:
 		surface_tool.add_uv(uvs[t])
 		surface_tool.add_vertex(t)
-	surface_tool.index()
+	#surface_tool.index()
 	surface_tool.generate_normals()
 	var array_mesh = surface_tool.commit()
 	var err = ResourceSaver.save("meshes/hex_mesh_" + str(HEIGHT) + ".tres", array_mesh)
