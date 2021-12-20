@@ -7,6 +7,7 @@ export var height: int
 export var grid_coords: Vector2
 export var base_color: Color
 export var viewable = false
+export var shaded = false
 
 func make_pickable():
 	get_child(0).input_ray_pickable = true
@@ -31,6 +32,8 @@ func _process(_delta):
 	var material = get_active_material(0)
 	if material.albedo_color != color:
 		material.albedo_color = color
+	if shaded:
+		material.albedo_color = color.darkened(0.4)
 	if not viewable:
 		material.albedo_color = color.darkened(0.9)
 

@@ -15,16 +15,17 @@ export var SIZE = 21 # should be odd for a nice sized hexagon
 onready var grid = []
 onready var tallest = 0
 
-const MAX_HEIGHT = 20.0
-const CAPPED_HEIGHT = 20.0
+const MAX_HEIGHT = 30.0
+const CAPPED_HEIGHT = 30.0
 const WATER_HEIGHT = 0
 const USE_HEIGHT_MAP = true
 
 # Both can be false but only one can be true
-const ISLAND_MODE = false
-const CRATER_MODE = true
+const ISLAND_MODE = true
+const CRATER_MODE = false
+const CANYON_MODE = false
 const FLAT_MODE = false
-const TWEAK_FACTOR = 1.0 # should be between 0 and 1
+const TWEAK_FACTOR = 0.5 # should be between 0 and 1
 
 var noise = OpenSimplexNoise.new()
 var secondary_noise = OpenSimplexNoise.new()
@@ -46,13 +47,13 @@ const DIRECTIONS = [
 
 func _ready():
 	randomize()
-	var curr_seed = randi()
+	var curr_seed = 5228
 	print("SEED: ", curr_seed)
 	noise.seed = curr_seed
 	#noise.octaves = 1
 	noise.period = NOISE_CONFIG.period_1
 	noise.persistence = NOISE_CONFIG.persistence
-	var seed_2 = randi()
+	var seed_2 = 5228
 	secondary_noise.seed = seed_2
 	secondary_noise.period = NOISE_CONFIG.period_2
 	generate_tiles()
@@ -67,6 +68,11 @@ func is_inbounds(x: int, y: int) -> bool:
 		return false
 	else:
 		return true
+
+func get_height(x, y):
+	if not is_inbounds(x, y):
+		return NAN
+	return grid[x][y].scale.z
 
 
 func get_immediate_neighbors(x: int, y: int) -> Array:
@@ -138,6 +144,81 @@ func find_line(x1: int, y1: int, x2: int, y2: int, max_length = INF) -> Array:
 	return path
 
 
+func line_of_sight(x1, y1, x2, y2):
+	if !is_inbounds(x1, y1) or !is_inbounds(x2, y2) or (x1 == x2 and y1 == y2):
+		return []
+	var dist = Hex.axial_distance(Vector2(x1, y1), Vector2(x2, y2))
+	var dx = (x2 - x1) / dist
+	var dy = (y2 - y1) / dist
+	var path = []
+	var shaded = []
+	var start_height = get_height(x1, y1)
+	var prev_height = start_height
+	var min_height = 0
+	var absolute_min = 0
+	var has_increased_height = false
+	for i in range(dist + 1):
+		var rounded = Hex.axial_round(x1 + dx * i, y1 + dy * i)
+		var vec = Vector2(rounded.x, rounded.y)
+		var height = get_height(vec.x, vec.y)
+		if height < absolute_min:
+			continue
+		
+		if height < min_height:
+			if has_increased_height: # can't see over crest of hill
+				shaded.append(vec)
+				absolute_min = height
+				continue
+			if height <= start_height and not path.has(vec): # normally a tile would get full cover but if
+				shaded.append(vec)                       # they're on the same level then they should be in half cover 
+				#print(".")
+			min_height -= 1
+			continue
+		
+		if not path.has(vec):
+			path.append(vec)
+		
+		if height > prev_height + 1 and height > start_height: # if current tile is > 1 tile taller than previous tile
+			min_height = height + 1
+			has_increased_height = true
+			continue                                              # then the line of sight is broken
+		
+		if height > prev_height:
+			min_height = height
+		
+		if height > start_height + 1:
+			has_increased_height = true
+		
+		prev_height = height
+		
+	path.pop_front()
+	return { "lit": path, "shaded": shaded }
+
+
+func find_tiles_in_sight(x, y):
+	if not is_inbounds(x, y):
+		return []
+	var tiles = []
+	var shaded = []
+	for i in range(SIZE):
+		for j in range(SIZE):
+			if (i == x and j == y) or tiles.has(Vector2(i, j)) or not is_inbounds(i, j):
+				continue
+			var line = line_of_sight(x, y, i, j)
+			for t in line.lit:
+				if not tiles.has(t):
+					tiles.append(t)
+			for t in line.shaded:
+				if not shaded.has(t) and not tiles.has(t):
+					shaded.append(t)
+	
+	var filtered = []
+	for t in shaded:
+		if not tiles.has(t):
+			filtered.append(t)
+	return { "lit": tiles, "shaded": filtered }
+
+
 func find_cone(x1: int, y1: int, x2: int, y2: int, length: int, ignore_walls = false) -> Array:
 	if x1 == x2 and y1 == y2:
 		return []
@@ -173,7 +254,7 @@ func find_cone(x1: int, y1: int, x2: int, y2: int, length: int, ignore_walls = f
 			if not is_inbounds(to_add.x, to_add.y):
 				break
 			var e_height = grid[to_add.x][to_add.y].scale.z
-			if min_heights.has(j) and e_height < min_heights[j]:
+			if min_heights.has(j) and e_height <= min_heights[j]:
 				continue
 			cone.append(to_add)
 			if e_height > s_height:
@@ -203,7 +284,7 @@ func find_cone(x1: int, y1: int, x2: int, y2: int, length: int, ignore_walls = f
 			if not is_inbounds(to_add.x, to_add.y):
 				break
 			var e_height = grid[to_add.x][to_add.y].scale.z
-			if min_heights.has(j) and e_height < min_heights[j]:
+			if min_heights.has(j) and e_height <= min_heights[j]:
 				continue
 			cone.append(to_add)
 			if e_height > s_height:
@@ -215,7 +296,7 @@ func find_cone(x1: int, y1: int, x2: int, y2: int, length: int, ignore_walls = f
 					for o in range(j + 1, j + et):
 						if not min_heights.has(o) or min_heights[o] > min_height:
 							min_heights[o] = min_height
-			#if e_height - s_height >= 3 and not ignore_walls:
+			#if e_height - s_height >= 2 and not ignore_walls:
 			#	obstacles.append(j)
 		root = root + direction
 	# 12 cones possible, some slight overlap
@@ -308,11 +389,18 @@ func _on_mouse_enter(mi: Hex):
 	mi.color = Color(0.7, 0, 0.3, 1)
 # warning-ignore:narrowing_conversion
 # warning-ignore:narrowing_conversion
-	var cone = find_cones_around_point(mi.grid_coords.x, mi.grid_coords.y, SIZE/4)
-	for c in cone:
+	#var cone = find_cones_around_point(mi.grid_coords.x, mi.grid_coords.y, SIZE/4)
+	var cone = find_tiles_in_sight(mi.grid_coords.x, mi.grid_coords.y)
+	for c in cone.lit:
 		var h = c.x
 		var k = c.y
 		var n = grid[h][k]
+		n.viewable = true
+	for c in cone.shaded:
+		var h = c.x
+		var k = c.y
+		var n = grid[h][k]
+		n.shaded = true
 		n.viewable = true
 
 func _on_mouse_exit(mi: Hex):
@@ -320,12 +408,19 @@ func _on_mouse_exit(mi: Hex):
 	reset_color(mi)
 # warning-ignore:narrowing_conversion
 # warning-ignore:narrowing_conversion
-	var cone = find_cones_around_point(mi.grid_coords.x, mi.grid_coords.y, SIZE/4)
-	for c in cone:
+	#var cone = find_cones_around_point(mi.grid_coords.x, mi.grid_coords.y, SIZE/4)
+	var cone = find_tiles_in_sight(mi.grid_coords.x, mi.grid_coords.y)
+	for c in cone.lit:
 		var h = c.x
 		var k = c.y
 		var n = grid[h][k]
-		n.viewable = false # NOT WORKING WTF
+		n.viewable = false
+	for c in cone.shaded:
+		var h = c.x
+		var k = c.y
+		var n = grid[h][k]
+		n.shaded = false
+		n.viewable = false
 	
 func reset_color(mi: Hex):
 	mi.color = mi.base_color
@@ -345,16 +440,15 @@ func _on_input(_cam, event, _pos, _norm, _shape_idx, x, y):
 			#print(grid[x][y].scale.z)
 			#var cone = find_cone(SIZE/2, SIZE/2, x, y, 5)
 			var cone = find_cones_around_point(x, y, SIZE)
-			#var i = -1
+			var i = -1
 			for c in cone:
-				#i += 1
+				i += 1
 				var h = c.x
 				var k = c.y
 				var n = grid[h][k]
-				n.viewable = true
-				#n.color = Color(0, n.color.g + 0.0125 * i, n.color.b + 0.0125 * i, 0.2)
+				#n.viewable = true
+				n.color = Color(0, n.color.g + 0.0125 * i, n.color.b + 0.0125 * i, 0.2)
 				#var _err = get_tree().create_timer(1).connect("timeout", self, "reset_color", [n])
-			#var path = find_line(SIZE/2, SIZE/2, x, y)
 			var path = find_path(SIZE/2, SIZE/2, x, y)
 			if path.size() == 0:
 				return
@@ -420,10 +514,13 @@ func generate_tiles():
 			var height = abs(ceil(noise.get_noise_2d(noise_x, noise_y) * MAX_HEIGHT)) + 1
 			
 			# MODE ADJUSTMENTS
-			var dist_to_center = Hex.axial_distance(Vector2(x, y), Vector2(SIZE/2, SIZE/ 2))
+			var size = SIZE / 2
+			var dist_to_center = Hex.axial_distance(Vector2(x, y), Vector2(size, size))
+			var dx = abs(x - size)
 			var adjusted_height
-			adjusted_height = max(ceil(((SIZE / 2) - dist_to_center) * height / (SIZE / 2)), 1) if ISLAND_MODE else height
-			adjusted_height = max(ceil(dist_to_center / (SIZE / 2) * height), 1) if CRATER_MODE else adjusted_height
+			adjusted_height = max(ceil(((size) - dist_to_center) * height / size), 1) if ISLAND_MODE else height
+			adjusted_height = max(ceil(dist_to_center / size * height), 1) if CRATER_MODE else adjusted_height
+			adjusted_height = max(ceil(height * 1.5 * (dx / MAX_HEIGHT)), 1) if CANYON_MODE else adjusted_height
 			height = tweak(height, adjusted_height, TWEAK_FACTOR)
 			height = 3 if FLAT_MODE else height
 			height = min(height, CAPPED_HEIGHT)
@@ -441,8 +538,9 @@ func generate_tiles():
 				mi.material_override.flags_transparent = true
 				height = WATER_HEIGHT
 			
-			if x == SIZE / 2 and y == SIZE / 2: # center tile
-				color = Color(1, 1, 1)
+			if x == size and y == size: # center tile
+				#color = Color(1, 1, 1)
+				pass
 			
 			mi.color = color
 			mi.base_color = color
