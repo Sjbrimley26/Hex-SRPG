@@ -9,11 +9,13 @@ var texture = preload("res://textures/TexturesCom_RockSmooth0076_1_seamless_S.jp
 #var texture = preload("res://textures/TexturesCom_Camouflage0002_seamless_S.jpg")
 var Config = preload("res://CONFIG.tres")
 var PriorityQueue = preload("res://PriorityQueue.gd")
+var Memoizer = preload("res://Memoizer.gd")
 
 export var SIZE = 21 # should be odd for a nice sized hexagon
 
 onready var grid = []
 onready var tallest = 0
+onready var memoized_tiles_in_sight = Memoizer.new()
 
 const MAX_HEIGHT = 30.0
 const CAPPED_HEIGHT = 30.0
@@ -21,11 +23,11 @@ const WATER_HEIGHT = 0
 const USE_HEIGHT_MAP = true
 
 # Both can be false but only one can be true
-const ISLAND_MODE = true
-const CRATER_MODE = false
+const ISLAND_MODE = false
+const CRATER_MODE = true
 const CANYON_MODE = false
 const FLAT_MODE = false
-const TWEAK_FACTOR = 0.5 # should be between 0 and 1
+const TWEAK_FACTOR = 1 # should be between 0 and 1
 
 var noise = OpenSimplexNoise.new()
 var secondary_noise = OpenSimplexNoise.new()
@@ -47,13 +49,13 @@ const DIRECTIONS = [
 
 func _ready():
 	randomize()
-	var curr_seed = 5228
+	var curr_seed = 5
 	print("SEED: ", curr_seed)
 	noise.seed = curr_seed
 	#noise.octaves = 1
 	noise.period = NOISE_CONFIG.period_1
 	noise.persistence = NOISE_CONFIG.persistence
-	var seed_2 = 5228
+	var seed_2 = 5
 	secondary_noise.seed = seed_2
 	secondary_noise.period = NOISE_CONFIG.period_2
 	generate_tiles()
@@ -61,6 +63,7 @@ func _ready():
 	$OuterGimbal.RADIUS = Config.TILE_HEIGHT * SIZE + 600
 	$OuterGimbal.CENTER = Vector2(center_tile.translation.x, center_tile.translation.y)
 	$OuterGimbal.translation.z += tallest * 64
+	memoized_tiles_in_sight.init(funcref(self, "find_tiles_in_sight"))
 
 
 func is_inbounds(x: int, y: int) -> bool:
@@ -73,7 +76,6 @@ func get_height(x, y):
 	if not is_inbounds(x, y):
 		return NAN
 	return grid[x][y].scale.z
-
 
 func get_immediate_neighbors(x: int, y: int) -> Array:
 	if not is_inbounds(x, y):
@@ -91,7 +93,6 @@ func get_immediate_neighbors(x: int, y: int) -> Array:
 		if is_inbounds(pair.x, pair.y):
 			found.append(pair)
 	return found
-
 
 func get_neighbors_and_distances(x: int, y: int, n: int) -> Array:
 	var found = {
@@ -144,10 +145,10 @@ func find_line(x1: int, y1: int, x2: int, y2: int, max_length = INF) -> Array:
 	return path
 
 
-func line_of_sight(x1, y1, x2, y2):
+func line_of_sight(x1, y1, x2, y2, go_until_edge = false):
 	if !is_inbounds(x1, y1) or !is_inbounds(x2, y2) or (x1 == x2 and y1 == y2):
 		return []
-	var dist = Hex.axial_distance(Vector2(x1, y1), Vector2(x2, y2))
+	var dist = SIZE if go_until_edge else Hex.axial_distance(Vector2(x1, y1), Vector2(x2, y2))
 	var dx = (x2 - x1) / dist
 	var dy = (y2 - y1) / dist
 	var path = []
@@ -160,34 +161,37 @@ func line_of_sight(x1, y1, x2, y2):
 	for i in range(dist + 1):
 		var rounded = Hex.axial_round(x1 + dx * i, y1 + dy * i)
 		var vec = Vector2(rounded.x, rounded.y)
+		
+		if not is_inbounds(vec.x, vec.y):
+			break # if the line goes beyond the edge of the map, stop
+		
 		var height = get_height(vec.x, vec.y)
+		
 		if height < absolute_min:
-			continue
+			#absolute_min += 1
+			continue # line of sight continues as long as its above the absolute min
 		
 		if height < min_height:
 			if has_increased_height: # can't see over crest of hill
-				shaded.append(vec)
-				absolute_min = height
-				continue
-			if height <= start_height and not path.has(vec): # normally a tile would get full cover but if
-				shaded.append(vec)                       # they're on the same level then they should be in half cover 
-				#print(".")
-			min_height -= 1
+				absolute_min = height if height > absolute_min else absolute_min
+			if not path.has(vec):  # normally a tile would get full cover but if
+				shaded.append(vec) # they're on the same level then they should be in half cover 
+			#min_height -= 1
+			prev_height = height
 			continue
 		
-		if not path.has(vec):
+		if height < prev_height:
+			if not path.has(vec) and not shaded.has(vec):
+				shaded.append(vec)
+		
+		if not path.has(vec) and not shaded.has(vec):
 			path.append(vec)
 		
-		if height > prev_height + 1 and height > start_height: # if current tile is > 1 tile taller than previous tile
-			min_height = height + 1
-			has_increased_height = true
-			continue                                              # then the line of sight is broken
+		if height > prev_height: # if current tile is > 1 tile taller than previous tile
+			has_increased_height = true                                           
 		
 		if height > prev_height:
-			min_height = height
-		
-		if height > start_height + 1:
-			has_increased_height = true
+			min_height = height if height > min_height else min_height
 		
 		prev_height = height
 		
@@ -200,135 +204,35 @@ func find_tiles_in_sight(x, y):
 		return []
 	var tiles = []
 	var shaded = []
+	var slopes = []
 	for i in range(SIZE):
 		for j in range(SIZE):
 			if (i == x and j == y) or tiles.has(Vector2(i, j)) or not is_inbounds(i, j):
 				continue
-			var line = line_of_sight(x, y, i, j)
+			var dx = (i - x) / SIZE
+			var dy = (j - y) / SIZE
+			var slope = dx / dy if dy != 0 else INF if dx > 0 else -INF
+			if slopes.has(slope):
+				pass
+			else:
+				slopes.append(slope)
+			var line = line_of_sight(x, y, i, j, true)
 			for t in line.lit:
 				if not tiles.has(t):
 					tiles.append(t)
 			for t in line.shaded:
-				if not shaded.has(t) and not tiles.has(t):
+				if not shaded.has(t):
 					shaded.append(t)
 	
 	var filtered = []
 	for t in shaded:
 		if not tiles.has(t):
 			filtered.append(t)
+	#for t in tiles:
+	#	if not shaded.has(t):
+	#		filtered.append(t)
 	return { "lit": tiles, "shaded": filtered }
-
-
-func find_cone(x1: int, y1: int, x2: int, y2: int, length: int, ignore_walls = false) -> Array:
-	if x1 == x2 and y1 == y2:
-		return []
-	var cone = []
-	var helper_line = find_line(x1, y1, x2, y2, 2)
-	var root = helper_line[0]
-	var direction = root - Vector2(x1, y1)
-	var secondary_direction
-	var s_height = grid[x1][y1].scale.z
-	
-	if helper_line.size() >= 2:
-		var helper_node = helper_line[1]
-		secondary_direction = helper_node - root
-	else:
-		secondary_direction = direction
-	
-	var dI = DIRECTIONS.find(direction)
-	if secondary_direction == direction:
-		if dI == 0:
-			secondary_direction = DIRECTIONS[5]
-		else:
-			secondary_direction = DIRECTIONS[dI - 1]
-	
-	var obstacles = []
-	var min_heights = {}
-	for i in range(length):
-		if not is_inbounds(root.x, root.y):
-			break
-		for j in range(i + 2):
-			var to_add = root + secondary_direction * j
-			if obstacles.has(j):
-				continue
-			if not is_inbounds(to_add.x, to_add.y):
-				break
-			var e_height = grid[to_add.x][to_add.y].scale.z
-			if min_heights.has(j) and e_height <= min_heights[j]:
-				continue
-			cone.append(to_add)
-			if e_height > s_height:
-				var min_height = e_height
-				if not min_heights.has(j) or min_heights[j] > min_height:
-					min_heights[j] = min_height
-				if j == i + 1:
-					var et = length - j
-					for o in range(j + 1, j + et):
-						if not min_heights.has(o) or min_heights[o] > min_height:
-							min_heights[o] = min_height
-						
-			#if e_height - s_height >= 2 and not ignore_walls:
-			#	obstacles.append(j)
-			#	if j == i + 1:
-			#		var et = length - j
-			#		for o in range(j + 1, j + et):
-			#			obstacles.append(o)
-		root = root + direction
-	for i in range(length, length * 2):
-		if not is_inbounds(root.x, root.y):
-			break
-		for j in range(0, length + (length - i)):
-			var to_add = root + secondary_direction * j
-			if obstacles.has(j):
-				continue
-			if not is_inbounds(to_add.x, to_add.y):
-				break
-			var e_height = grid[to_add.x][to_add.y].scale.z
-			if min_heights.has(j) and e_height <= min_heights[j]:
-				continue
-			cone.append(to_add)
-			if e_height > s_height:
-				var min_height = e_height
-				if not min_heights.has(j) or min_heights[j] > min_height:
-					min_heights[j] = min_height
-				if j == i + 1:
-					var et = length - j
-					for o in range(j + 1, j + et):
-						if not min_heights.has(o) or min_heights[o] > min_height:
-							min_heights[o] = min_height
-			#if e_height - s_height >= 2 and not ignore_walls:
-			#	obstacles.append(j)
-		root = root + direction
-	# 12 cones possible, some slight overlap
-	return cone
-
-
-func find_cones_around_point(x: int, y: int, distance: int) -> Array:
-	if not is_inbounds(x, y):
-		return []
-	var tiles = []
-	var points = [
-		Vector2(0, 1),
-		Vector2(1, 0),
-		Vector2(1, -1),
-		Vector2(0, -1),
-		Vector2(-1, 0),
-		Vector2(-1, 1),
-		Vector2(1, 2),
-		Vector2(3, -1),
-		Vector2(2, -3),
-		Vector2(-1, -2),
-		Vector2(-2, 1),
-		Vector2(-1, 2)
-	]
-	for p in points:
-		if not is_inbounds(x + p.x, y + p.y):
-			continue
-		var cone = find_cone(x, y, x + p.x, y + p.y, distance)
-		for c in cone:
-			if not tiles.has(c):
-				tiles.append(c)
-	return tiles
+	#return { "lit": filtered, "shaded": shaded }
 
 
 func get_movement_cost(start: Vector2, end: Vector2) -> int:
@@ -390,7 +294,9 @@ func _on_mouse_enter(mi: Hex):
 # warning-ignore:narrowing_conversion
 # warning-ignore:narrowing_conversion
 	#var cone = find_cones_around_point(mi.grid_coords.x, mi.grid_coords.y, SIZE/4)
-	var cone = find_tiles_in_sight(mi.grid_coords.x, mi.grid_coords.y)
+	#var cone = find_tiles_in_sight(mi.grid_coords.x, mi.grid_coords.y)
+	var cone = memoized_tiles_in_sight.run([mi.grid_coords.x, mi.grid_coords.y])
+	#var cone = line_of_sight(SIZE/2, SIZE/2, mi.grid_coords.x, mi.grid_coords.y, true)
 	for c in cone.lit:
 		var h = c.x
 		var k = c.y
@@ -409,7 +315,9 @@ func _on_mouse_exit(mi: Hex):
 # warning-ignore:narrowing_conversion
 # warning-ignore:narrowing_conversion
 	#var cone = find_cones_around_point(mi.grid_coords.x, mi.grid_coords.y, SIZE/4)
-	var cone = find_tiles_in_sight(mi.grid_coords.x, mi.grid_coords.y)
+	#var cone = find_tiles_in_sight(mi.grid_coords.x, mi.grid_coords.y)
+	#var cone = line_of_sight(SIZE/2, SIZE/2, mi.grid_coords.x, mi.grid_coords.y, true)
+	var cone = memoized_tiles_in_sight.run([mi.grid_coords.x, mi.grid_coords.y])
 	for c in cone.lit:
 		var h = c.x
 		var k = c.y
@@ -437,30 +345,18 @@ func firework(x, y):
 func _on_input(_cam, event, _pos, _norm, _shape_idx, x, y):
 	if event is InputEventMouseButton:
 		if event.button_index == 1 and event.pressed == false:
-			#print(grid[x][y].scale.z)
-			#var cone = find_cone(SIZE/2, SIZE/2, x, y, 5)
-			var cone = find_cones_around_point(x, y, SIZE)
-			var i = -1
-			for c in cone:
-				i += 1
-				var h = c.x
-				var k = c.y
-				var n = grid[h][k]
-				#n.viewable = true
-				n.color = Color(0, n.color.g + 0.0125 * i, n.color.b + 0.0125 * i, 0.2)
-				#var _err = get_tree().create_timer(1).connect("timeout", self, "reset_color", [n])
 			var path = find_path(SIZE/2, SIZE/2, x, y)
 			if path.size() == 0:
 				return
-			#var di = 1.0 / path.size()
-			#var i = 0
-			#for m in path:
-			#	i += 1
-			#	var h = m.x
-			#	var k = m.y
-			#	var neighbor = grid[h][k]
-			#	neighbor.color = Color(0, 0, min(di * i, 0.1), 0.2)
-			#	var _err = get_tree().create_timer(0.08 * i).connect("timeout", self, "reset_color", [neighbor])
+			var di = 1.0 / path.size()
+			var i = 0
+			for m in path:
+				i += 1
+				var h = m.x
+				var k = m.y
+				var neighbor = grid[h][k]
+				neighbor.color = Color(0, 0, min(di * i, 0.1), 0.2)
+				var _err = get_tree().create_timer(0.08 * i).connect("timeout", self, "reset_color", [neighbor])
 				#if h == x and k == y:
 					#neighbor.scale.z += 1
 					#var _err2 = get_tree().create_timer(0.08 * i).connect("timeout", self, "firework", [h, k])
@@ -539,7 +435,7 @@ func generate_tiles():
 				height = WATER_HEIGHT
 			
 			if x == size and y == size: # center tile
-				#color = Color(1, 1, 1)
+				color = Color(1, 1, 1)
 				pass
 			
 			mi.color = color

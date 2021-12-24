@@ -33,7 +33,7 @@ func _process(_delta):
 	if material.albedo_color != color:
 		material.albedo_color = color
 	if shaded:
-		material.albedo_color = color.darkened(0.4)
+		material.albedo_color = color * Color.aqua
 	if not viewable:
 		material.albedo_color = color.darkened(0.9)
 
